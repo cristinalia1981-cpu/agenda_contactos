@@ -1,70 +1,80 @@
 <?php
 session_start();
 
-// Verificar que el usuario haya iniciado sesión
 if (!isset($_SESSION["usuario_id"])) {
     header("Location: login.php");
     exit;
 }
 
-// Conexión con la base de datos
 require_once __DIR__ . "/configuraciones/conexion.php";
 
-// Crear token de seguridad CSRF
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
 
-// Datos del usuario autenticado
 $id_usuario = (int) $_SESSION["usuario_id"];
 $nombre = $_SESSION["usuario_nombre"] ?? "";
 $correo = $_SESSION["usuario_correo"] ?? "";
 
-// Función para mostrar datos de forma segura
 function escapar($texto) {
-    return htmlspecialchars(
-        (string) $texto,
-        ENT_QUOTES,
-        "UTF-8"
-    );
+    return htmlspecialchars((string) $texto, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8");
 }
 
-// Consultar únicamente los contactos del usuario
+// Leer los filtros del formulario.
+$entrada = $_GET["buscar"] ?? "";
+$buscar = is_string($entrada) ? trim($entrada) : "";
+$soloFavoritos = ($_GET["favoritos"] ?? "") === "1";
+$hayFiltros = $buscar !== "" || $soloFavoritos;
+
 try {
+    $sql = "SELECT id, nombre, telefono, correo, ciudad, favorito
+            FROM contactos
+            WHERE id_usuario = ?";
+    $parametros = [$id_usuario];
 
-    $consulta = $conexion->prepare(
-        "SELECT id, nombre, telefono, correo, ciudad
-         FROM contactos
-         WHERE id_usuario = ?
-         ORDER BY nombre ASC"
-    );
+    if ($soloFavoritos) {
+        $sql .= " AND favorito = 1";
+    }
 
-    $consulta->execute([$id_usuario]);
+    if ($buscar !== "") {
+        $sql .= " AND (
+            nombre LIKE ? ESCAPE '!'
+            OR correo LIKE ? ESCAPE '!'
+            OR ciudad LIKE ? ESCAPE '!'
+        )";
 
+        $texto = strtr($buscar, ["!" => "!!", "%" => "!%", "_" => "!_"]);
+        $patron = "%" . $texto . "%";
+        $parametros[] = $patron;
+        $parametros[] = $patron;
+        $parametros[] = $patron;
+    }
+
+    $sql .= " ORDER BY nombre ASC, id ASC";
+
+    $consulta = $conexion->prepare($sql);
+    $consulta->execute($parametros);
     $contactos = $consulta->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
-
     error_log($e->getMessage());
-
     http_response_code(500);
-
     exit("No se pudieron cargar los contactos.");
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
-
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Principal - Mi Agenda Personal</title>
 
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: Arial, sans-serif;
             background-color: #f0f4f8;
@@ -104,22 +114,37 @@ try {
             line-height: 1.8;
         }
 
-        .cabecera-contactos {
+        .cabecera-contactos,
+        .controles-busqueda,
+        .acciones,
+        .opcion-favoritos {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            gap: 15px;
+            gap: 10px;
+        }
+
+        .cabecera-contactos {
+            justify-content: space-between;
             flex-wrap: wrap;
         }
 
-        .boton {
+        .boton,
+        .boton-editar,
+        .boton-eliminar,
+        .boton-salir {
             display: inline-block;
-            background-color: #2563eb;
             color: white;
-            padding: 12px 18px;
-            text-decoration: none;
+            padding: 10px 16px;
+            border: none;
             border-radius: 6px;
+            font: inherit;
             font-size: 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .boton {
+            background-color: #2563eb;
         }
 
         .boton:hover {
@@ -127,38 +152,62 @@ try {
         }
 
         .boton-editar {
-            display: inline-block;
-            background-color: #f59e0b;
-            color: white;
-            padding: 8px 14px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-size: 14px;
+            background-color: #92400e;
         }
 
         .boton-editar:hover {
-            background-color: #d97706;
+            background-color: #78350f;
         }
 
-        .boton-eliminar {
-            display: inline-block;
+        .boton-eliminar,
+        .boton-salir {
             background-color: #dc2626;
-            color: white;
-            padding: 8px 14px;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            cursor: pointer;
         }
 
-        .boton-eliminar:hover {
+        .boton-eliminar:hover,
+        .boton-salir:hover {
             background-color: #b91c1c;
         }
 
-        .acciones {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .boton-salir {
+            margin-top: 10px;
+        }
+
+        .buscador {
+            margin: 18px 0;
+        }
+
+        .etiqueta-busqueda {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .controles-busqueda {
+            flex-wrap: wrap;
+        }
+
+        .controles-busqueda input[type="search"] {
+            width: 340px;
+            max-width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #94a3b8;
+            border-radius: 6px;
+            font: inherit;
+        }
+
+        .opcion-favoritos {
+            cursor: pointer;
+        }
+
+        .opcion-favoritos input {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+        }
+
+        .controles-busqueda a {
+            color: #1d4ed8;
         }
 
         .acciones form {
@@ -191,7 +240,8 @@ try {
             background-color: #f1f5f9;
         }
 
-        .contador {
+        .contador,
+        .vacio {
             color: #555;
         }
 
@@ -200,11 +250,9 @@ try {
             padding: 20px;
             border-radius: 8px;
             text-align: center;
-            color: #555;
         }
 
         @media (max-width: 600px) {
-
             .contenedor {
                 margin: 15px auto;
                 padding: 10px;
@@ -219,213 +267,139 @@ try {
                 font-size: 13px;
             }
         }
-        .boton-salir {
-    display: inline-block;
-    background-color: #dc2626;
-    color: white;
-    padding: 10px 18px;
-    margin-top: 10px;
-    border-radius: 6px;
-    text-decoration: none;
-    font-size: 14px;
-}
-
-.boton-salir:hover {
-    background-color: #b91c1c;
-}
-
     </style>
-
 </head>
 
 <body>
-
-    <!-- Encabezado principal -->
-
-   <header>
-    <h1>Mi Agenda Personal</h1>
-    <p>Panel Principal</p>
-
-    <a href="logout.php" class="boton-salir">
-        Cerrar sesión
-    </a>
+    <header>
+        <h1>Mi Agenda Personal</h1>
+        <p>Panel Principal</p>
+        <a href="logout.php" class="boton-salir">Cerrar sesión</a>
     </header>
 
-    <div class="contenedor">
-
-        <!-- Información del usuario -->
-        <div class="tarjeta">
-
-            <h2>
-                ¡Bienvenido,
-                <?php echo escapar($nombre); ?>!
-            </h2>
-
+    <main class="contenedor">
+        <section class="tarjeta">
+            <h2>¡Bienvenido, <?= escapar($nombre) ?>!</h2>
             <div class="datos">
-
-                <p>
-                    <strong>Nombre:</strong>
-                    <?php echo escapar($nombre); ?>
-                </p>
-
-                <p>
-                    <strong>Correo electrónico:</strong>
-                    <?php echo escapar($correo); ?>
-                </p>
-
+                <p><strong>Nombre:</strong> <?= escapar($nombre) ?></p>
+                <p><strong>Correo electrónico:</strong> <?= escapar($correo) ?></p>
             </div>
+        </section>
 
-        </div>
-
-        <!-- Sección de contactos -->
-        <div class="tarjeta">
-
+        <section class="tarjeta">
             <div class="cabecera-contactos">
-
                 <h2>Mis Contactos</h2>
-
-                <a href="agregar_contacto.php" class="boton">
-                    + Agregar Contacto
-                </a>
-
+                <a href="agregar_contacto.php" class="boton">+ Agregar Contacto</a>
             </div>
+
+            <form action="panel.php" method="get" class="buscador">
+                <label for="buscar" class="etiqueta-busqueda">
+                    Buscar por nombre, correo o ciudad
+                </label>
+
+                <div class="controles-busqueda">
+                    <input
+                        type="search"
+                        id="buscar"
+                        name="buscar"
+                        placeholder="Ej. Ana o Cuenca"
+                        value="<?= escapar($buscar) ?>"
+                    >
+
+                    <label for="favoritos" class="opcion-favoritos">
+                        <input
+                            type="checkbox"
+                            id="favoritos"
+                            name="favoritos"
+                            value="1"
+                            <?= $soloFavoritos ? "checked" : "" ?>
+                        >
+                        Solo favoritos
+                    </label>
+
+                    <button type="submit" class="boton">Buscar</button>
+
+                    <?php if ($hayFiltros): ?>
+                        <a href="panel.php">Ver todos los contactos</a>
+                    <?php endif; ?>
+                </div>
+            </form>
 
             <p class="contador">
-                Total de contactos:
-                <strong>
-                    <?php echo count($contactos); ?>
-                </strong>
+                <?= $hayFiltros ? "Coincidencias:" : "Total de contactos:" ?>
+                <strong><?= count($contactos) ?></strong>
             </p>
 
             <?php if (count($contactos) > 0): ?>
-
                 <div class="tabla-contenedor">
-
-                    <table>
-
+                    <table aria-label="Mis contactos">
                         <thead>
                             <tr>
-                                <th>Nombre</th>
-                                <th>Teléfono</th>
-                                <th>Correo electrónico</th>
-                                <th>Ciudad</th>
-                                <th>Acciones</th>
+                                <th scope="col">Nombre</th>
+                                <th scope="col">Teléfono</th>
+                                <th scope="col">Correo electrónico</th>
+                                <th scope="col">Ciudad</th>
+                                <th scope="col">Favorito</th>
+                                <th scope="col">Acciones</th>
                             </tr>
                         </thead>
-
                         <tbody>
-
                             <?php foreach ($contactos as $contacto): ?>
-
                                 <tr>
-
+                                    <td><?= escapar($contacto["nombre"]) ?></td>
+                                    <td><?= escapar($contacto["telefono"]) ?></td>
+                                    <td><?= escapar($contacto["correo"]) ?></td>
+                                    <td><?= escapar($contacto["ciudad"]) ?></td>
+                                    <td><?= (int) $contacto["favorito"] === 1 ? "Sí" : "No" ?></td>
                                     <td>
-                                        <?php
-                                        echo escapar(
-                                            $contacto["nombre"]
-                                        );
-                                        ?>
-                                    </td>
-
-                                    <td>
-                                        <?php
-                                        echo escapar(
-                                            $contacto["telefono"]
-                                        );
-                                        ?>
-                                    </td>
-
-                                    <td>
-                                        <?php
-                                        echo escapar(
-                                            $contacto["correo"]
-                                        );
-                                        ?>
-                                    </td>
-
-                                    <td>
-                                        <?php
-                                        echo escapar(
-                                            $contacto["ciudad"]
-                                        );
-                                        ?>
-                                    </td>
-
-                                    <!-- Botones Editar y Eliminar -->
-                                    <td>
-
                                         <div class="acciones">
-
-                                            <!-- Botón Editar -->
                                             <a
                                                 class="boton-editar"
-                                                href="editar_contacto.php?id=<?php
-                                                    echo (int) $contacto["id"];
-                                                ?>"
-                                            >
-                                                Editar
-                                            </a>
+                                                href="editar_contacto.php?id=<?= (int) $contacto["id"] ?>"
+                                            >Editar</a>
 
-                                            <!-- Botón Eliminar -->
                                             <form
                                                 action="eliminar_contacto.php"
-                                                method="POST"
+                                                method="post"
                                                 onsubmit="return confirm('¿Estás seguro de eliminar este contacto?');"
                                             >
-
                                                 <input
                                                     type="hidden"
                                                     name="id"
-                                                    value="<?php
-                                                        echo (int) $contacto["id"];
-                                                    ?>"
+                                                    value="<?= (int) $contacto["id"] ?>"
                                                 >
-
                                                 <input
                                                     type="hidden"
                                                     name="csrf_token"
-                                                    value="<?php
-                                                        echo escapar(
-                                                            $_SESSION["csrf_token"]
-                                                        );
-                                                    ?>"
+                                                    value="<?= escapar($_SESSION["csrf_token"]) ?>"
                                                 >
-
-                                                <button
-                                                    type="submit"
-                                                    class="boton-eliminar"
-                                                >
+                                                <button type="submit" class="boton-eliminar">
                                                     Eliminar
                                                 </button>
-
                                             </form>
-
                                         </div>
-
                                     </td>
-
                                 </tr>
-
                             <?php endforeach; ?>
-
                         </tbody>
-
                     </table>
-
                 </div>
-
+            <?php elseif ($buscar !== "" && $soloFavoritos): ?>
+                <p class="vacio">
+                    Ningún favorito coincide con «<?= escapar($buscar) ?>».
+                </p>
+            <?php elseif ($soloFavoritos): ?>
+                <p class="vacio">Todavía no tienes contactos marcados como favoritos.</p>
+            <?php elseif ($buscar !== ""): ?>
+                <p class="vacio">
+                    No se encontraron contactos para «<?= escapar($buscar) ?>».
+                </p>
             <?php else: ?>
-
-                <div class="vacio">
-                    Todavía no tienes contactos registrados.
-                    Puedes agregar tu primer contacto.
-                </div>
-
+                <p class="vacio">
+                    Todavía no tienes contactos registrados. Puedes agregar tu primer contacto.
+                </p>
             <?php endif; ?>
-
-        </div>
-
-    </div>
-
+        </section>
+    </main>
 </body>
 </html>

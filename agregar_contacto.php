@@ -1,45 +1,48 @@
 <?php
 session_start();
 
-// Verificar que el usuario inició sesión
+// Verificar que el usuario inició sesión.
 if (!isset($_SESSION["usuario_id"])) {
     header("Location: login.php");
     exit;
 }
 
-// Conexión a la base de datos
 require_once __DIR__ . "/configuraciones/conexion.php";
 
 $mensaje = "";
 $exito = false;
+$nombre = "";
+$telefono = "";
+$correo = "";
+$ciudad = "";
+$favorito = 0;
 
-// Crear token de seguridad
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
 
-// Procesar el formulario
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
+function leerCampo($campo) {
+    $valor = $_POST[$campo] ?? "";
+    return is_string($valor) ? trim($valor) : "";
+}
 
-    $nombre = trim($_POST["nombre"] ?? "");
-    $telefono = trim($_POST["telefono"] ?? "");
-    $correo = trim($_POST["correo"] ?? "");
-    $ciudad = trim($_POST["ciudad"] ?? "");
+function escapar($texto) {
+    return htmlspecialchars((string) $texto, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8");
+}
+
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    $nombre = leerCampo("nombre");
+    $telefono = leerCampo("telefono");
+    $correo = leerCampo("correo");
+    $ciudad = leerCampo("ciudad");
+    $favorito = ($_POST["favorito"] ?? "") === "1" ? 1 : 0;
     $token = $_POST["csrf_token"] ?? "";
 
-    if (
-        !is_string($token) ||
-        !hash_equals($_SESSION["csrf_token"], $token)
-    ) {
+    if (!is_string($token) || !hash_equals($_SESSION["csrf_token"], $token)) {
         $mensaje = "Solicitud no válida.";
 
-    } elseif (
-        $nombre === "" ||
-        $telefono === "" ||
-        $correo === "" ||
-        $ciudad === ""
-    ) {
-        $mensaje = "Todos los campos son obligatorios.";
+    } elseif ($nombre === "" || $telefono === "" || $correo === "" || $ciudad === "") {
+        $mensaje = "Completa el nombre, el teléfono, el correo y la ciudad.";
 
     } elseif (
         mb_strlen($nombre) > 100 ||
@@ -53,30 +56,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $mensaje = "El correo electrónico no es válido.";
 
     } else {
-
         try {
-            // El propietario se obtiene de la sesión,
-            // nunca del formulario ni de la URL.
-            $id_usuario = (int) $_SESSION["usuario_id"];
-
             $consulta = $conexion->prepare(
                 "INSERT INTO contactos
-                 (id_usuario, nombre, telefono, correo, ciudad)
-                 VALUES (?, ?, ?, ?, ?)"
+                    (id_usuario, nombre, telefono, correo, ciudad, favorito)
+                 VALUES (?, ?, ?, ?, ?, ?)"
             );
 
             $consulta->execute([
-                $id_usuario,
+                (int) $_SESSION["usuario_id"],
                 $nombre,
                 $telefono,
                 $correo,
-                $ciudad
+                $ciudad,
+                $favorito
             ]);
 
             $mensaje = "¡Contacto registrado correctamente!";
             $exito = true;
-
             $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
+
+            // Dejar el formulario listo para registrar otro contacto.
+            $nombre = "";
+            $telefono = "";
+            $correo = "";
+            $ciudad = "";
+            $favorito = 0;
 
         } catch (PDOException $e) {
             error_log($e->getMessage());
@@ -111,7 +116,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             width: 380px;
             max-width: calc(100% - 40px);
             box-sizing: border-box;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
 
         h1 {
@@ -122,16 +127,30 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         label {
             display: block;
             font-weight: bold;
-            margin-top: 15px;
-            margin-bottom: 6px;
+            margin: 15px 0 6px;
         }
 
-        input {
+        input[type="text"],
+        input[type="tel"],
+        input[type="email"] {
             width: 100%;
             padding: 11px;
             border: 1px solid #ccc;
             border-radius: 6px;
             box-sizing: border-box;
+        }
+
+        .opcion-favorito {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .opcion-favorito input {
+            width: 18px;
+            height: 18px;
+            margin: 0;
         }
 
         button {
@@ -166,80 +185,79 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 </head>
 
 <body>
-<div class="contenedor">
+    <main class="contenedor">
+        <h1>Agregar Contacto</h1>
 
-    <h1>Agregar Contacto</h1>
+        <?php if ($mensaje !== ""): ?>
+            <p class="mensaje <?= $exito ? 'exito' : '' ?>">
+                <?= escapar($mensaje) ?>
+            </p>
+        <?php endif; ?>
 
-    <?php if ($mensaje !== ""): ?>
-        <div class="mensaje <?php echo $exito ? 'exito' : ''; ?>">
-            <?php
-            echo htmlspecialchars(
-                $mensaje,
-                ENT_QUOTES,
-                "UTF-8"
-            );
-            ?>
+        <form action="agregar_contacto.php" method="post">
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="<?= escapar($_SESSION['csrf_token']) ?>"
+            >
+
+            <label for="nombre">Nombre completo:</label>
+            <input
+                type="text"
+                id="nombre"
+                name="nombre"
+                maxlength="100"
+                value="<?= escapar($nombre) ?>"
+                required
+            >
+
+            <label for="telefono">Teléfono:</label>
+            <input
+                type="tel"
+                id="telefono"
+                name="telefono"
+                maxlength="20"
+                value="<?= escapar($telefono) ?>"
+                required
+            >
+
+            <label for="correo">Correo electrónico:</label>
+            <input
+                type="email"
+                id="correo"
+                name="correo"
+                maxlength="150"
+                value="<?= escapar($correo) ?>"
+                required
+            >
+
+            <label for="ciudad">Ciudad:</label>
+            <input
+                type="text"
+                id="ciudad"
+                name="ciudad"
+                maxlength="100"
+                value="<?= escapar($ciudad) ?>"
+                required
+            >
+
+            <label for="favorito" class="opcion-favorito">
+                <input
+                    type="checkbox"
+                    id="favorito"
+                    name="favorito"
+                    value="1"
+                    <?= $favorito === 1 ? 'checked' : '' ?>
+                >
+                Marcar como favorito
+            </label>
+
+            <button type="submit">Guardar Contacto</button>
+        </form>
+
+        <div class="volver">
+            <a href="panel.php">Volver al panel principal</a>
         </div>
-    <?php endif; ?>
-
-    <form action="agregar_contacto.php" method="POST">
-
-        <input
-            type="hidden"
-            name="csrf_token"
-            value="<?php
-            echo htmlspecialchars(
-                $_SESSION["csrf_token"],
-                ENT_QUOTES,
-                "UTF-8"
-            );
-            ?>"
-        >
-
-        <label for="nombre">Nombre completo:</label>
-        <input
-            type="text"
-            id="nombre"
-            name="nombre"
-            maxlength="100"
-            required
-        >
-
-        <label for="telefono">Teléfono:</label>
-        <input
-            type="tel"
-            id="telefono"
-            name="telefono"
-            maxlength="20"
-            required
-        >
-
-        <label for="correo">Correo electrónico:</label>
-        <input
-            type="email"
-            id="correo"
-            name="correo"
-            maxlength="150"
-            required
-        >
-
-        <label for="ciudad">Ciudad:</label>
-        <input
-            type="text"
-            id="ciudad"
-            name="ciudad"
-            maxlength="100"
-            required
-        >
-
-        <button type="submit">Guardar Contacto</button>
-
-    </form>
-
-    <div class="volver">
-        <a href="panel.php">Volver al panel principal</a>
-    </div>
-
-</div>
+    </main>
 </body>
 </html>
