@@ -35,6 +35,13 @@ Ambos filtros se pueden combinar. Por ejemplo, para buscar favoritos de Quito, e
 
 ### Inicio de sesión
 
+![Formulario de inicio de sesión de la agenda](inicio-sesion.png)
+
+### Panel de contactos
+
+![Panel de contactos con el filtro Solo favoritos](favoritos.png)
+### Inicio de sesión
+
 ![Formulario de inicio de sesión de la agenda publicada](capturas/inicio-sesion.png)
 
 ### Panel de contactos
